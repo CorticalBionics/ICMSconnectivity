@@ -1,0 +1,635 @@
+function [] = SomatotopyGradientPlotting(sm, smData, pd, projectionFields, arrayInfo, arrayOfInterest)
+
+%% Settings
+numDigits = 5;
+numChannels = 192;
+
+% Use 3 for C1, 1 for P2 and P3
+if arrayOfInterest == 1
+    motChanMask = sm.motorChannel<129;
+elseif arrayOfInterest == 3
+    motChanMask = sm.motorChannel>128;
+end
+
+% detailedPFs = BCI02PF;
+
+%% Generate Heatmaps
+filtSize = 1; % Filter size to smooth the heatmaps prior to taking correlations
+[smData.rf.hmap, smData.pf.hmap] = deal(zeros(5, 10, 10));
+
+
+for dd = 1:numDigits
+    
+    % Get the motor channel heatmaps
+     motorRF = zeros(1, numChannels);
+     if arrayOfInterest == 1
+         mcIdx = find(~isnan(pd.digit.avgFlexModIdx(1:96))); % Find which motor channels were modulated
+         motorRF(mcIdx) = pd.digit.diffFlexResponse(mcIdx, dd);
+     elseif arrayOfInterest == 3
+         mcIdx = find(~isnan(pd.digit.avgFlexModIdx(97:192)))+96; % Find which motor channels were modulated
+         motorRF(mcIdx-96) = pd.digit.diffFlexResponse(mcIdx, dd);
+     end
+
+     coi = arrayInfo.ChanIndices{arrayOfInterest};
+     tmp = createHeatmapMatrix(motorRF', coi, 'motor', arrayInfo);
+     if arrayOfInterest == 1
+         tmp = tmp.medial;
+     elseif arrayOfInterest == 3
+         tmp = tmp.lateral;
+     end
+
+     % Smooth the heatmaps
+     tmp(isnan(tmp)) = 0;
+     tmp = imgaussfilt(tmp, filtSize);
+     tmp([1, 1, end, end], [1, end, 1, end]) = NaN; % There are no channels in the corners of the arrays NEED TO ADJUST FOR P2
+     smData.rf.hmap(dd, :, :) = tmp;
+
+    % Get the stim channels with relevant PFs
+    seFingerIdx = cellfun(@(x) any(x == dd) & ~isempty(x), projectionFields.digitPFs, 'UniformOutput', 1);%seFingerIdx = cellfun(@(x) all(x == dd) & ~isempty(x), projectionFields.digitPFs, 'UniformOutput', 1);%
+%     seFingerIdx = logical(detailedPFs.palmerDigitPresent(:,dd));% & detailedPFs.dorsumDigitPresent(:,dd));
+    stimElectrodes = projectionFields.stimElectrode(seFingerIdx);
+    seIdx = ismember(sm.stimElectrode, stimElectrodes');
+
+    % Compute projection field heatmap and overlap with motor RFs
+    if sum(seIdx) > 0
+        
+        % Find the motor channels which are significantly modulated by
+        % these stim electrodes
+        mcIdx = find(sum(sm.isModulated(:, seIdx), 2) > 0);
+        stimModMCs = sm.motorChannel(1, mcIdx);
+        seID = find(seIdx);
+        
+        % Get the projection field heatmap
+%         stimPF = zeros(1, numChannels);
+        modStim = mean(sm.modValue(motChanMask, seID(seID > 0)), 2);
+        %         modStim = max(sm.modValue(:, seID(seID > 0)), [], 2); 
+        
+        
+        tmp = createHeatmapMatrix(modStim, sm.motorChannel(motChanMask), 'motor', arrayInfo);  
+        if arrayOfInterest == 1
+            tmp = tmp.medial;
+        elseif arrayOfInterest == 3
+            tmp = tmp.lateral;
+        end
+        %Smoothing steps
+        tmp(isnan(tmp)) = 0;
+        tmp = imgaussfilt(tmp, filtSize);
+        tmp([1, 1, end, end], [1, end, 1, end]) = NaN;
+        smData.pf.hmap(dd, :, :) = tmp;
+        
+        % Get the correlations
+        tmpRF = squeeze(smData.rf.hmap(dd, :, :));
+        tmpPF = squeeze(smData.pf.hmap(dd,:,:));
+        smData.corr(dd) = corr(tmpRF(:), tmpPF(:), 'rows', 'pairwise');        
+        
+        % Calculate the centroids
+%         [smData.rf.centroid(dd, 1), smData.rf.centroid(dd, 2)] = calculateCentroid(squeeze(smData.rf.hmap(dd, :, :)), 1:10, 1:10); % arrays are 10 x 10
+%         [smData.pf.centroid(dd, 1), smData.pf.centroid(dd, 2)] = calculateCentroid(squeeze(smData.pf.hmap(dd, :, :)), 1:10, 1:10);
+    end
+end
+singleCov = cov([squeeze(smData.rf.hmap(1,:,:)) squeeze(smData.rf.hmap(2,:,:)) squeeze(smData.rf.hmap(3,:,:)) squeeze(smData.rf.hmap(4,:,:)) squeeze(smData.rf.hmap(5,:,:))],...
+    [squeeze(smData.pf.hmap(1,:,:)) squeeze(smData.pf.hmap(2,:,:)) squeeze(smData.pf.hmap(3,:,:)) squeeze(smData.pf.hmap(4,:,:)) squeeze(smData.pf.hmap(5,:,:))],'partialrows');
+%% Plot Heatmaps
+
+
+cMaxMotor = max(smData.rf.hmap(:));
+cMinMotor = -cMaxMotor/3;   %Anectdotally this works out, and it makes the maps consistent across subjects
+if cMaxMotor < 3
+    cTickMotor = floor(cMaxMotor*4)/12;
+else
+    cTickMotor = floor(cMaxMotor/3);
+end
+
+cMaxStim = max(smData.pf.hmap(:));
+cMinStim = -cMaxStim/3;
+if cMaxStim < 3
+    cTickStim = floor(cMaxStim*4)/12;
+else
+    cTickStim = floor(cMaxStim/3);
+end
+
+cMin = -2; cMax = 4;
+
+
+fingerNames = {'Thumb', 'Index', 'Middle', 'Ring', 'Pinky'};
+propHigh = cMax / (abs(cMax) + abs(cMin));
+propLow = 1 - propHigh;
+if cMin == 0
+    mod_cmap = cmap_gradient([rgb('Snow'); rgb('MediumVioletRed')], [propLow, propHigh]);
+else
+    mod_cmap = cmap_gradient([.118 .565 1; 1 .98 .98; [199,21,133]/256], [propLow, propHigh]);
+end
+
+figure('Units', 'Normalized', 'OuterPosition', [.2 .15 0.75 0.8], 'Color', 'w')
+t = tiledlayout(2, 5, 'Padding', 'Compact', 'TileSpacing', 'Compact');
+% title(t, 'All Movement - Mean for PF')
+for dd = 1:5
+    
+    % Motor Heatmap
+    nexttile
+    curHeatmap = squeeze(smData.rf.hmap(dd, :, :));
+    generateHeatmap(curHeatmap, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinMotor, cMaxMotor]);
+    axis square
+%     set(gca, 'view', [-45 90], 'FontSize', 15)
+%     hold on
+%     plot(smData.rf.centroid(dd, 1), smData.rf.centroid(dd, 2), 'k*', 'MarkerSize', 15)
+    title(sprintf('%s', fingerNames{dd}))
+    if dd == 1
+        text(-2, 0, 'Motor', 'FontSize', 17, 'FontWeight', 'bold')
+    end
+    if dd == 5
+        cbar = colorbar;
+        set(cbar,'XTick',[-cTickMotor 0 cTickMotor cTickMotor*2 cTickMotor*3]);
+        %cbar is Z-Score for this digit relative to all digits
+    end
+    
+    % Sensory Heatmap
+    curHeatmap = squeeze(smData.pf.hmap(dd,:,:));
+    nexttile(dd + 5)
+    generateHeatmap(curHeatmap, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);
+    axis square
+%     set(gca, 'view', [-45 90], 'FontSize', 15)
+%     title(sprintf('[R: %.2] ', smData.corr(dd)))
+%     hold on
+%     plot(smData.pf.centroid(dd, 1), smData.pf.centroid(dd, 2), 'k*', 'MarkerSize', 15)
+    if dd == 1
+        text(-2, -.5, 'Sensory', 'FontSize', 17, 'FontWeight', 'bold')
+    end
+    if dd == 5
+        cbar = colorbar;
+        set(cbar,'XTick',[-cTickStim 0 cTickStim cTickStim*2 cTickStim*3]);
+        %cbar label is NS's Modulation index for stim
+    end
+end
+
+%% Gradient Plot
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(smData.rf.hmap(:, row, col));
+        linFit = polyfit([1 2 3 4 5],tempDigVals,1);
+        gradMotor(row,col) = linFit(1);
+
+        tempDigVals = squeeze(smData.pf.hmap(:, row, col));
+        linFit = polyfit([1 2 3 4 5],tempDigVals,1);
+        gradSense(row,col) = linFit(1);
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-limitMotor, limitMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-limitStim, limitStim]);title('Sensory');axis square;colorbar;
+
+%% Primary Digit Plot
+
+primaryMotor = nan(10,10);
+primarySense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+
+        if ~ismember(row,[1 10]) || ~ismember(col,[1 10])
+
+            [~,tempDigIdx] = max(squeeze(smData.rf.hmap(:, row, col)));
+            primaryMotor(row,col) = tempDigIdx;
+
+            [~,tempDigIdx] = max(squeeze(smData.pf.hmap(:, row, col)));
+            primarySense(row,col) = tempDigIdx;
+
+        end
+
+    end
+end
+
+figure();generateHeatmap(primaryMotor, 'cmap', winter, 'plotOutline', 1, 'clim', [1, 5]);title('Motor');axis square;colorbar('XTick',[1 2 3 4 5],'XTickLabel',{'D1','D2','D3','D4','D5'});
+
+figure();generateHeatmap(primarySense, 'cmap', winter, 'plotOutline', 1, 'clim', [1, 5]);title('Sensory');axis square;colorbar('XTick',[1 2 3 4 5],'XTickLabel',{'D1','D2','D3','D4','D5'});
+
+%% Primary Digit Plot - Normalized
+
+normedPF = nan(5,10,10);
+normedRF = nan(5,10,10);
+
+for dig = 1:5
+    digHMap = squeeze(smData.pf.hmap(dig,:,:));
+    normedPF(dig,:,:) = (digHMap - mean(digHMap(:),'omitnan'))/std(digHMap(:),'omitnan');
+
+    digHMap = squeeze(smData.rf.hmap(dig,:,:));
+    normedRF(dig,:,:) = (digHMap - mean(digHMap(:),'omitnan'))/std(digHMap(:),'omitnan');
+end
+
+primaryMotor = nan(10,10);
+primarySense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+
+        if ~ismember(row,[1 10]) || ~ismember(col,[1 10])
+
+            [~,tempDigIdx] = max(squeeze(normedRF(:, row, col)));
+            primaryMotor(row,col) = tempDigIdx;
+
+            [~,tempDigIdx] = max(squeeze(normedPF(:, row, col)));
+            primarySense(row,col) = tempDigIdx;
+
+        end
+
+    end
+end
+
+mod_cmap = [255 127 0;152 78 163;77 175 74;55 126 184;228 26 28]/256;
+
+figure();generateHeatmap(primaryMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [1, 5]);title('Motor');axis square;colorbar('XTick',[1 2 3 4 5],'XTickLabel',{'D1','D2','D3','D4','D5'});
+
+figure();generateHeatmap(primarySense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [1, 5]);title('Sensory');axis square;colorbar('XTick',[1 2 3 4 5],'XTickLabel',{'D1','D2','D3','D4','D5'});
+
+
+%% Gradient Plot - Normalized
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(normedRF(:, row, col));
+        linFit = polyfit([1 2 3 4 5],tempDigVals,1);
+        gradMotor(row,col) = linFit(1);
+
+        tempDigVals = squeeze(normedPF(:, row, col));
+        if arrayOfInterest == 1
+            linFit = polyfit([1 2 3 4 5],tempDigVals(1:5),1);
+        elseif arrayOfInterest == 3
+            linFit = polyfit([1 2 3 4],tempDigVals(1:4),1);
+        end
+        gradSense(row,col) = linFit(1);
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187]/256);
+% mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-limitMotor, limitMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-limitStim, limitStim]);title('Sensory');axis square;colorbar;
+
+%% Spearman - Normalized
+
+normedPF = nan(5,10,10);
+normedRF = nan(5,10,10);
+
+for dig = 1:5
+    digHMap = squeeze(smData.pf.hmap(dig,:,:));
+    normedPF(dig,:,:) = (digHMap - mean(digHMap(:),'omitnan'))/std(digHMap(:),'omitnan');
+
+    digHMap = squeeze(smData.rf.hmap(dig,:,:));
+    normedRF(dig,:,:) = (digHMap - mean(digHMap(:),'omitnan'))/std(digHMap(:),'omitnan');
+end
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(normedRF(:, row, col));
+        linFit = corr([1 2 3 4 5]',tempDigVals,'Type','Spearman');
+        gradMotor(row,col) = linFit;
+
+        tempDigVals = squeeze(normedPF(:, row, col));
+        if arrayOfInterest == 1
+            linFit = corr([1 2 3 4 5]',tempDigVals(1:5),'Type','Spearman');
+        elseif arrayOfInterest == 3
+            linFit = corr([1 2 3 4]',tempDigVals(1:4),'Type','Spearman');
+        end
+        
+        gradSense(row,col) = linFit;
+
+    end
+end
+
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187]/256);
+% mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();
+subplot(1,2,1);generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-1, 1]);title('Motor Map','FontSize',24);axis square;
+subplot(1,2,2);generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [-1, 1]);title('Sensory Map','FontSize',24);axis square;
+
+% figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);title('Sensory Map','FontSize',24);axis square;colorbar;
+
+%% Spearman - Excitatory
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(smData.rf.hmap(:, row, col));
+%         tempDigVals(tempDigVals < 0) = zeros(sum(tempDigVals<0),1);
+        linFit = corr([1 2 3 4 5]',tempDigVals,'Type','Spearman');
+        gradMotor(row,col) = linFit;
+
+        tempDigVals = squeeze(smData.pf.hmap(:, row, col));
+        tempDigVals(tempDigVals < 0) = zeros(sum(tempDigVals<0),1);
+        if arrayOfInterest == 1
+            linFit = corr([1 2 3 4 5]',tempDigVals(1:5),'Type','Spearman');
+        elseif arrayOfInterest == 3
+            linFit = corr([1 2 3 4]',tempDigVals(1:4),'Type','Spearman');
+        end
+        
+        gradSense(row,col) = linFit;
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinMotor, cMaxMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);title('Sensory');axis square;colorbar;
+
+%% Spearman - Unnormalized
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(smData.rf.hmap(:, row, col));
+%         tempDigVals(tempDigVals < 0) = zeros(sum(tempDigVals<0),1);
+        linFit = corr([1 2 3 4 5]',tempDigVals,'Type','Spearman');
+        gradMotor(row,col) = linFit;
+
+        tempDigVals = squeeze(smData.pf.hmap(:, row, col));
+%         tempDigVals(tempDigVals < 0) = zeros(sum(tempDigVals<0),1);
+        if arrayOfInterest == 1
+            linFit = corr([1 2 3 4 5]',tempDigVals(1:5),'Type','Spearman');
+        elseif arrayOfInterest == 3
+            linFit = corr([1 2 3 4]',tempDigVals(1:4),'Type','Spearman');
+        end
+        
+        gradSense(row,col) = linFit;
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinMotor, cMaxMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);title('Sensory');axis square;colorbar;
+%% Weighted Average - Normalized
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(normedRF(:, row, col));
+        linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4 + tempDigVals(5)*5)/5;
+        gradMotor(row,col) = linFit;
+
+        tempDigVals = squeeze(normedPF(:, row, col));
+        if arrayOfInterest == 1
+            linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4 + tempDigVals(5)*5)/5;
+        elseif arrayOfInterest == 3
+            linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4)/4;
+        end
+        
+        gradSense(row,col) = linFit;
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinMotor, cMaxMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);title('Sensory');axis square;colorbar;
+
+%% Weighted Average - UnNormalized
+
+gradMotor = nan(10,10);
+gradSense = nan(10,10);
+
+for row = 1:10
+    for col = 1:10
+        
+        tempDigVals = squeeze(smData.rf.hmap(:, row, col));
+        linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4 + tempDigVals(5)*5)/5;
+        gradMotor(row,col) = linFit;
+
+        tempDigVals = squeeze(smData.pf.hmap(:, row, col));
+        if arrayOfInterest == 1
+            linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4 + tempDigVals(5)*5)/5;
+        elseif arrayOfInterest == 3
+            linFit = sum(tempDigVals(1) + tempDigVals(2)*2 + tempDigVals(3)*3 + tempDigVals(4)*4)/4;
+        end
+        
+        gradSense(row,col) = linFit;
+
+    end
+end
+
+cMin = min([min(min(gradSense)) min(min(gradMotor))]);
+cMax = max([max(max(gradSense)) max(max(gradMotor))]);
+
+cMinMotor = min(min(gradMotor)); cMaxMotor = max(max(gradMotor));limitMotor = max([abs(cMinMotor) abs(cMaxMotor)]);
+cMinStim = min(min(gradSense)); cMaxStim = max(max(gradSense));limitStim = max([abs(cMinStim) abs(cMaxStim)]);
+
+mod_cmap = cmap_gradient([8 29 88;37 52 148;34 94 168;29 145 192;65 182 196;127 205 187;199 233 180;237 248 177;255 255 217]/256);
+
+figure();generateHeatmap(gradMotor, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinMotor, cMaxMotor]);title('Motor');axis square;colorbar;
+
+figure();generateHeatmap(gradSense, 'cmap', mod_cmap, 'plotOutline', 1, 'clim', [cMinStim, cMaxStim]);title('Sensory');axis square;colorbar;
+
+%% Shuffle
+
+[shuffsmData.rf.hmap, shuffsmData.pf.hmap] = deal(zeros(5, 10, 10));
+
+shuffleCovVal = nan(1000,2,2);
+
+for s = 1:1000
+    for dd = 1:numDigits
+
+        % Get the motor channel heatmaps
+        motorRF = zeros(1, numChannels);
+        if arrayOfInterest == 1
+            mcIdx = find(~isnan(pd.digit.avgFlexModIdx(1:96))); % Find which motor channels were modulated
+            motorRF(mcIdx) = pd.digit.diffFlexResponse(mcIdx, dd);
+        elseif arrayOfInterest == 3
+            mcIdx = find(~isnan(pd.digit.avgFlexModIdx(97:192)))+96; % Find which motor channels were modulated
+            motorRF(mcIdx-96) = pd.digit.diffFlexResponse(mcIdx, dd);
+        end
+
+        coi = arrayInfo.ChanIndices{arrayOfInterest};
+        tmp = createHeatmapMatrix(motorRF', coi, 'motor', arrayInfo);
+        if arrayOfInterest == 1
+            mcIdx = find(~isnan(pd.digit.avgFlexModIdx(1:96))); % Find which motor channels were modulated
+            motorRF(mcIdx) = pd.digit.diffFlexResponse(mcIdx, dd);
+        elseif arrayOfInterest == 3
+            mcIdx = find(~isnan(pd.digit.avgFlexModIdx(97:192)))+96; % Find which motor channels were modulated
+            motorRF(mcIdx-96) = pd.digit.diffFlexResponse(mcIdx, dd);
+        end
+        if arrayOfInterest == 1
+            tmpRF = tmp.medial;
+        elseif arrayOfInterest == 3
+            tmpRF = tmp.lateral;
+        end
+
+
+
+        % Get the stim channels with have relevant PFs
+        seFingerIdx = cellfun(@(x) all(x == dd) & ~isempty(x), projectionFields.digitPFs, 'UniformOutput', 1);%seFingerIdx = cellfun(@(x) any(x == dd) & ~isempty(x), projectionFields.digitPFs, 'UniformOutput', 1);
+        stimElectrodes = projectionFields.stimElectrode(seFingerIdx);
+        seIdx = ismember(sm.stimElectrode, stimElectrodes');
+
+        % Compute projection field heatmap and overlap with motor RFs
+        if sum(seIdx) > 0
+
+            % Find the motor channels which are significantly modulated by
+            % these stim electrodes
+            mcIdx = find(sum(sm.isModulated(:, seIdx), 2) > 0);
+            stimModMCs = sm.motorChannel(1, mcIdx);
+            seID = find(seIdx);
+
+            % Get the projection field heatmap
+            %         stimPF = zeros(1, numChannels);
+            modStim = mean(sm.modValue(motChanMask, seID(seID > 0)), 2);
+            %         modStim = max(sm.modValue(:, seID(seID > 0)), [], 2);
+
+
+            tmp = createHeatmapMatrix(modStim, sm.motorChannel(motChanMask), 'motor', arrayInfo);
+            if arrayOfInterest == 1
+                tmpPF = tmp.medial;
+            elseif arrayOfInterest == 3
+                tmpPF = tmp.lateral;
+            end
+
+            shuffMot = reshape(randperm(100,100),10,10);    %shuffle Motor Map then restore corners
+            [row,col] = find(shuffMot == 1);shuffMot(row,col) = shuffMot(1,1);shuffMot(1,1) = 1;
+            [row,col] = find(shuffMot == 10);shuffMot(row,col) = shuffMot(1,10);shuffMot(1,10) = 10;
+            [row,col] = find(shuffMot == 91);shuffMot(row,col) = shuffMot(10,1);shuffMot(10,1) = 91;
+            [row,col] = find(shuffMot == 100);shuffMot(row,col) = shuffMot(10,10);shuffMot(10,10) = 100;
+
+            shuffSen = reshape(randperm(100,100),10,10);    %shuffle Sensory Map then restore corners
+            [row,col] = find(shuffSen == 1);shuffSen(row,col) = shuffSen(1,1);shuffSen(1,1) = 1;
+            [row,col] = find(shuffSen == 10);shuffSen(row,col) = shuffSen(1,10);shuffSen(1,10) = 10;
+            [row,col] = find(shuffSen == 91);shuffSen(row,col) = shuffSen(10,1);shuffSen(10,1) = 91;
+            [row,col] = find(shuffSen == 100);shuffSen(row,col) = shuffSen(10,10);shuffSen(10,10) = 100;
+
+            %             shuffleDiffs(i,md,sd,:,:) = 192*imabsdiff(abs(tmpMotor.lateral(shuffMot)),abs(tmpSensory.lateral(shuffSen)))./(sum(sum(abs(tmpMotor.lateral),'omitnan'))+sum(sum(abs(tmpSensory.lateral),'omitnan')));
+            tmptmpRF = tmpRF(shuffMot); tmptmpPF = tmpPF(shuffSen);
+
+            % Smooth the heatmaps
+            tmptmpRF(isnan(tmptmpRF)) = 0;
+            tmptmpRF = imgaussfilt(tmptmpRF, filtSize);
+            tmptmpRF([1, 1, end, end], [1, end, 1, end]) = NaN; % There are no channels in the corners of the arrays NEED TO ADJUST FOR CRS02
+            shuffsmData.rf.hmap(dd, :, :) = tmptmpRF;
+
+            %Smoothing steps
+            tmptmpPF(isnan(tmptmpPF)) = 0;
+            tmptmpPF = imgaussfilt(tmptmpPF, filtSize);
+            tmptmpPF([1, 1, end, end], [1, end, 1, end]) = NaN;
+            shuffsmData.pf.hmap(dd, :, :) = tmptmpPF;
+
+            % Get the correlations
+            tmpRF = squeeze(shuffsmData.rf.hmap(dd, :, :));
+            tmpPF = squeeze(shuffsmData.pf.hmap(dd,:,:));
+            shuffsmData.corr(dd) = corr(tmpRF(:), tmpPF(:), 'rows', 'pairwise');
+
+            % Calculate the centroids
+            %         [shuffsmData.rf.centroid(dd, 1), shuffsmData.rf.centroid(dd, 2)] = calculateCentroid(squeeze(shuffsmData.rf.hmap(dd, :, :)), 1:10, 1:10); % arrays are 10 x 10
+            %         [shuffsmData.pf.centroid(dd, 1), shuffsmData.pf.centroid(dd, 2)] = calculateCentroid(squeeze(shuffsmData.pf.hmap(dd, :, :)), 1:10, 1:10);
+        end
+    end
+    shuffleCovVal(s,:,:) = cov([squeeze(shuffsmData.rf.hmap(1,:,:)) squeeze(shuffsmData.rf.hmap(2,:,:)) squeeze(shuffsmData.rf.hmap(3,:,:)) squeeze(shuffsmData.rf.hmap(4,:,:)) squeeze(shuffsmData.rf.hmap(5,:,:))],...
+        [squeeze(shuffsmData.pf.hmap(1,:,:)) squeeze(shuffsmData.pf.hmap(2,:,:)) squeeze(shuffsmData.pf.hmap(3,:,:)) squeeze(shuffsmData.pf.hmap(4,:,:)) squeeze(shuffsmData.pf.hmap(5,:,:))],'partialrows');
+end
+
+%% Plotting shuffle distributions
+% singleCov_# = singleCov(2,1); shuffleSingleCov_# = squeeze(shuffleCovVal(:,2,1));
+
+sSC = shuffleSingleCov_C1;
+sC = singleCov_C1;
+
+minShuff = min(sSC); maxShuff = max(sSC);
+binEdge = minShuff:(maxShuff-minShuff)/10:maxShuff;
+axisEdge = max([abs(sC) max(abs(sSC))])*1.2;
+
+figure();
+histogram(sSC,binEdge,'EdgeColor',[0 0 0],'EdgeAlpha',1,'FaceColor',[0 0 0],'FaceAlpha',.5,'LineWidth',2);
+    hold on;axis([-axisEdge axisEdge 0 325]);plot([sC sC],[0 300],'g','LineWidth',2);scatter(sC,300,50,'filled','v','MarkerEdgeColor','g','MarkerFaceColor','g')
+    set(gca,'XTickLabel','');set(gca,'YTickLabel','');set(gca,'TickLength',[0 0]);
+    box off;set(gca,'LineWidth',2);set(gca,'YColor','w');xlabel('Covariance','FontSize',16);
+
+%     set(ha(3),'FontSize',14);
+% set(ha(3),'YTickLabel',[0 10 20 30]);ylabel(ha(3),'Frequency(%)','FontSize',18);
+% xlabel(ha(3),'Covariance','FontSize',18);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
