@@ -70,12 +70,24 @@ for mc = 1:length(motorChannel)
         peakTime = NaN(1, 3);
         for ff = 1:numel(freq)
             if sm(ff).pulse.isModulated(mc, se)
-                peakTime(ff) = sm(ff).pulse.peakTime(mc, se);
-                if freq(ff) == 25 && peakTime(ff) > 10
+                peakTime(ff) = min([sm(ff).pulse.peakTime(mc, se), sm(ff).pulse.secondPeakTime(mc, se)]);
+                if freq(ff) == 25 % && peakTime(ff) > 10
                     % For 25Hz, sometimes the tallest peaks occur after
                     % 10ms during the rebound phase
                     [~, maxIdx] = max(sm(ff).pulse.avgPTA(mc, se, validTimeIdx_25Hz));
                     peakTime(ff) = ptaTimeVec_25Hz(maxIdx);
+
+
+                      % Find a second peak (if any)
+                [peakValues, peakTimeValues] = findpeaks(squeeze(sm(ff).pulse.avgPTA(mc, se, validTimeIdx_25Hz))', ptaTimeVec);
+                [~, idx] = sort(peakValues);
+                if length(peakValues) > 1
+                    sm.pulse.probSecondPeak(cont, se) = peakValues(idx(end - 1));
+                    sm.pulse.secondPeakTime(cont, se) = peakTimeValues(idx(end - 1));
+                else
+                    sm.pulse.probSecondPeak(cont, se) = 0;
+                    sm.pulse.secondPeakTime(cont, se) = NaN;
+                end
                 end
             end
         end
