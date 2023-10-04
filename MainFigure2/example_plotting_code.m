@@ -10,27 +10,24 @@ fig2.modValue = axes('Position', [.81 .15 .18 .75]); %axes('Position', [.4 .15 .
 annotation('textbox', [0.7, 0.88, .1, .1], 'String', 'b', 'FitBoxToText', 'on', 'LineStyle', 'none', 'Rotation', 0, ...
     'FontWeight', 'bold', 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
 
-subjectLabel = {'C1', 'P2', 'P3'};
 subjectColors = [rgb(106, 27, 154); rgb(239, 108, 0); rgb(46, 125, 50)];
 hmapColors = cmap_gradient([rgb(255, 255, 255); rgb(136, 14, 79)]);
 
-subjects = {'BCI02', 'CRS02b', 'CRS07'};
+subjects = {'C1', 'P2', 'P3'};
 for ss = 1:3
 
     subjectID = subjects{ss};
     switch subjectID
-        case 'BCI02'
-            sessionDate = 20211228;
+        case 'C1'
             arrayInfo = UC_chan_mapper('FullMapLatMed.txt');
-        case 'CRS02b'
-            sessionDate = 20211215;
-            arrayInfo = Pitt_chan_mapper_CRS02b('FullMapLatMed.txt');
-        case 'CRS07'
-            sessionDate = 20220128;
-            arrayInfo = Pitt_chan_mapper_CRS07('FullMapLatMed.txt');
+        case 'P2'
+            arrayInfo = Pitt_chan_mapper_P2('FullMapLatMed.txt');
+        case 'P3'
+            arrayInfo = Pitt_chan_mapper_P3('FullMapLatMed.txt');
     end
     
-    load([sprintf('//BENSMAIA-LAB/LabSharing/Natalya/BCI/Data/Stim Modulation/%i/TrainData_100Hz_%s_Unsorted.mat', sessionDate, subjectID)]);
+    load([sprintf('TrainData_100Hz_%s_Unsorted.mat', subjectID)]);
+    
     % Sparseness
     numSE = sum(sm.isModulated, 2);
     propSE = numSE / length(sm.stimElectrode);
@@ -38,9 +35,9 @@ for ss = 1:3
 
     axes(fig2.seCDF(ss))
     hmap.lateral([1 1 10 10], [1 10 1 10]) = 0;
-     if strcmpi(subjectID, 'BCI02')
+     if strcmpi(subjectID, 'C1')
         rotHmap = imrotate(hmap.lateral, 90);
-    elseif strcmpi(subjectID, 'CRS02b')
+    elseif strcmpi(subjectID, 'P2')
         rotHmap = imrotate(hmap.lateral, 270);
      else
         rotHmap = imrotate(hmap.lateral, 270);
@@ -48,7 +45,7 @@ for ss = 1:3
     generateHeatmap(rotHmap, 'cmap', hmapColors, 'plotOutline', 1, 'clim', [0 .7]);
     axis square
     axis on
-    title(sprintf('%s', subjectLabel{ss}), 'FontWeight', 'normal')
+    title(sprintf('%s', subjectID), 'FontWeight', 'normal')
     set(gca, 'Color', rgb(176, 190, 197), 'FontSize', 7)
     plot(10, 1, 's', 'Color', [139, 193, 69] ./ 255, 'MarkerSize', 3.4, 'MarkerFaceColor', [139, 193, 69] ./ 255, 'Parent', fig2.seCDF(ss))
 
@@ -76,5 +73,5 @@ fig2.modValue.YLim = [0 10];
 ylabel('Avg. |Modulation|', 'Position', [-1, 5, -1], 'Parent', fig2.modValue);
 fig2.modValue.XLim = [0 4];
 fig2.modValue.XTick = 1:3;
-fig2.modValue.XTickLabel = subjectLabel;
+fig2.modValue.XTickLabel = subjects;
 fig2.modValue.FontSize = 7;

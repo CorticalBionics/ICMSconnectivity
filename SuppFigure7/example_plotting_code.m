@@ -1,0 +1,94 @@
+% Define figure coordinates and axes
+figX.fig = figure('Name', 'Figure X: STAs Across Frequencies');
+set(figX.fig, 'Units', 'pixels', 'Position', OSScreenSize([15 4]), 'NumberTitle', 'off');
+figX.pta(1) = axes('Position', [.025 .08 .225 .8]); figX.pta(2) = axes('Position', [.275 .08 .225 .8]); figX.pta(3) = axes('Position', [.525 .08 .225 .8]);
+annotation('textbox', [0, 0.9, .1, .1], 'String', 'a', 'FitBoxToText', 'on', 'LineStyle', 'none', 'Rotation', 0, ...
+    'FontWeight', 'bold', 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
+
+figX.latDiff = axes('Position', [.8 .15 .18 .75]);
+annotation('textbox', [0.75, 0.9, .1, .1], 'String', 'b', 'FitBoxToText', 'on', 'LineStyle', 'none', 'Rotation', 0, ...
+    'FontWeight', 'bold', 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
+
+mcId = [163, 167, 175]; %163
+seId = [43, 43, 38]; % 43
+subjectID = 'BCI02';
+sessionDate = 20220412;
+
+% Load Data
+load('PulseData_25Hz_C1_Unsorted.mat');
+sm_tmp(1) = sm;
+load('PulseData_50Hz_C1_Unsorted.mat');
+sm_tmp(2) = sm;
+load('PulseData_100Hz_C1_Unsorted.mat');
+sm_tmp(3) = sm;
+clear sm; sm = sm_tmp; clear sm_tmp;
+
+freqColor = [rgb(21, 101, 192);
+    rgb(106, 27, 154);
+    rgb(173, 20, 87)];
+
+for ss = 1:length(mcId)
+    for ff = 1:3
+        avgPTA = squeeze(sm(ff).pulse.avgPTA(sm(ff).mcIdx(:, 1) == mcId(ss), sm(ff).seIdx(1,:) == seId(ss), :))';
+        AlphaLine(sm(ff).ptaTimeVec(1:end - 1), avgPTA(1:end - 1), freqColor(ff, :), 'LineWidth', 1.5, 'IgnoreNaN', 2, 'ErrorType', 'STD', 'Parent', figX.pta(ss))
+    end
+
+    % Stim Blank Interval
+    plotStimInterval(0, 2, figX.pta(ss).YLim(2), 'Parent', figX.pta(ss))
+
+    % Scale bars
+    plot([0 0], [0 .05], 'k', 'LineWidth', 1.5, 'Parent', figX.pta(ss))
+
+    figX.pta(ss).XTick = [];
+    figX.pta(ss).XColor = 'none';
+    figX.pta(ss).XLim = [0 40];
+    figX.pta(ss).YTick = [];
+    figX.pta(ss).YColor = 'none';
+
+end
+
+plot([0 5], [figX.pta(1).YLim(1) figX.pta(1).YLim(1)], 'k', 'LineWidth', 1.5, 'Parent', figX.pta(1))
+text(2.5, figX.pta(1).YLim(1), '5ms', 'VerticalAlignment', 'top', 'HorizontalAlignment', 'center', 'Parent', figX.pta(1))
+text(-2.5, .06, 'p = 0.05', 'Rotation', 90, 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'right', 'Parent', figX.pta(1))
+
+text(40, figX.pta(1).YLim(2), ColorText({'100Hz', '50Hz', '25Hz'}, flip(freqColor)), 'Parent', figX.pta(1), 'HorizontalAlignment', 'right', 'VerticalAlignment', 'top')
+
+figX.pta(1).YLim(1) = 0;
+figX.pta(2).YLim(1) = 0;
+figX.pta(3).YLim(1) = 0;
+
+%% Latency Calculation
+motorChannel = sm(1).motorChannel;
+stimElectrode = sm(1).stimElectrode;
+freq = [25, 50, 100];
+
+latencyDiff = [];
+for mc = 1:length(motorChannel)
+    for se = 1:length(stimElectrode)
+        peakTime = NaN(1, 3);
+        for ff = 1:numel(freq)
+            if sm(ff).pulse.isModulated(mc, se)
+                peakTime(ff) = min([sm(ff).pulse.peakTime(mc, se), sm(ff).pulse.secondPeakTime(mc, se)]);
+            end
+        end
+        if ~all(isnan(peakTime))
+            latencyDiff = [latencyDiff, diff(peakTime)];
+        end
+    end
+end
+latencyDiff = latencyDiff(~isnan(latencyDiff));
+latencyDiff = latencyDiff(abs(latencyDiff) < 3);
+
+% load('latencies.mat')
+% latencyDiff = abs(latencyDiff(~isnan(latencyDiff)));
+histogram(latencyDiff, 'BinEdges', 0:.5:1.5, 'Normalization','probability', 'FaceColor',rgbt('Grey'), 'EdgeColor', 'k', 'Parent', figX.latDiff)
+axes(figX.latDiff)
+hold on
+box off
+plot([1 1], [0 1], 'k:', 'Parent', figX.latDiff)
+figX.latDiff.XTick = [0 1.5];
+xlabel('\DeltaLatency [ms]', 'Position', [.75, -.05, 0], 'Parent', figX.latDiff)
+
+ylabel('Proportion', 'Position', [-.1 .5, 0], 'Parent', figX.latDiff)
+figX.latDiff.YTick = 0:1;
+figX.latDiff.YLim = [0 1];
