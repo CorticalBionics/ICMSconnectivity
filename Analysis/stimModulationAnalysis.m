@@ -1,7 +1,7 @@
 clear; clc;
 
 % Load specific files
-subjectID = 'CRS08';
+subjectID = 'P3';
 sessionDate = 20230831;
 stimElectrode = 1:64;
 motorChannel = [1:64, 97:192, 225:256];
@@ -15,11 +15,11 @@ clearData = 1;
 
 % Save Data Params
 saveDataType = 'Stim Modulation';
-saveDataFolder = sprintf('S:/UserFolders/NatalyaShelchkova/BCI/Data/%s/%i/', saveDataType, sessionDate);
+saveDataFolder = sprintf('/%s/%i/', saveDataType, sessionDate);
 fileSizeThresh = 5; % GB
 
 % Data Params
-dataFolder = sprintf('S:/UserFolders/NatalyaShelchkova/BCI/Data/Processed Raw Files/%i/StimMod/', sessionDate);
+dataFolder = sprintf('/%i/StimMod/', sessionDate);
 
 loadedData = zeros(length(stimElectrode), length(motorChannel));
 
