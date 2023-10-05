@@ -18,7 +18,7 @@ for freqId = [100]
         for se = 1:length(stimElectrode)
             seId = stimElectrode(se);
             try
-                load(sprintf('S:/UserFolders/NatalyaShelchkova/BCI/Data/Stim Modulation/%i/SE%i_MC%i_%iHz_StimMod_%i_Unsorted.mat', sessionDate, seId, mcId, freqId, sessionDate))
+                load(sprintf('/%/SE%i_MC%i_%iHz_StimMod_%i_Unsorted.mat', sessionDate, seId, mcId, freqId, sessionDate))
             catch
                 continue;
             end
@@ -28,7 +28,7 @@ for freqId = [100]
         end
 
         if exist('allSmData', 'var')
-            save(sprintf('S:/UserFolders/NatalyaShelchkova/BCI/Data/Stim Modulation/%i/MC%i_AllSE_%iHz_%i_Unsorted.mat', sessionDate, mcId, freqId, sessionDate), 'allSmData')
+            save(sprintf('%i/MC%i_AllSE_%iHz_%i_Unsorted.mat', sessionDate, mcId, freqId, sessionDate), 'allSmData')
             clear allSmData
         end
 
