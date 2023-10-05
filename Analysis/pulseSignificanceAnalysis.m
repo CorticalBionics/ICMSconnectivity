@@ -1,5 +1,5 @@
 clear; clc;
-subjectID = 'CRS08';
+subjectID = 'P3';
 sessionDate = 20230831;
 stimElectrode = [2:30, 32:61, 63,64];
 motorChannel = [1:64, 97:192, 225:256]; 
@@ -11,7 +11,7 @@ saveData = 1;
 % PTA Folds
 numFolds = 10;
 
-dataFolder = sprintf('S:/UserFolders/NatalyaShelchkova/BCI/Data/Stim Modulation/%i/', sessionDate);
+dataFolder = sprintf('/%i/', sessionDate);
 
 
 %% Analysis Start
@@ -26,7 +26,7 @@ for mc = 2:length(motorChannel)
     mcId = motorChannel(mc);
 
     if sortedSpikes
-        %         load(sprintf('//BENSMAIA-LAB/LabSharing/Natalya/BCI/Data/Processed Raw Files/%i/Snippets/MC%i_Snippets_%i.mat', sessionDate, mcId, sessionDate))
+        %         load(sprintf('Processed Raw Files/%i/Snippets/MC%i_Snippets_%i.mat', sessionDate, mcId, sessionDate))
         %         validUnits = unique(snippetData.unit);
         %         validUnits = validUnits(validUnits > 0);
         %         validUnits = goodUnits.units(goodUnits.motorChannel == mcId);
